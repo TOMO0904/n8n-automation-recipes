@@ -1,0 +1,156 @@
+{
+  "name": "Daily RSS Digest to Slack (demo)",
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "Every Morning 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n2",
+      "name": "Read RSS Feed",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "url": "https://example.com/feed.xml",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "n3",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Keep the newest items, trim them and build one Slack message.\nconst MAX_ITEMS = 5;\nconst items = $input.all().map(i => i.json)\n  .filter(i => i.title && i.link)\n  .sort((a, b) => new Date(b.isoDate ?? b.pubDate ?? 0) - new Date(a.isoDate ?? a.pubDate ?? 0))\n  .slice(0, MAX_ITEMS);\nif (items.length === 0) {\n  return [{ json: { text: 'No new items in the feed today.', count: 0 } }];\n}\nconst clean = s => String(s ?? '').replace(/<[^>]*>/g, '').replace(/\\s+/g, ' ').trim();\nconst lines = items.map((i, n) => {\n  const summary = clean(i.contentSnippet ?? i.content ?? '');\n  const short = summary.length > 160 ? summary.slice(0, 157) + '...' : summary;\n  return `${n + 1}. <${i.link}|${clean(i.title)}>` + (short ? `\\n    ${short}` : '');\n});\nreturn [{ json: { text: `*Daily digest* (${items.length} items)\\n` + lines.join('\\n'), count: items.length } }];"
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_CHANNEL_ID",
+          "mode": "id"
+        },
+        "text": "={{ $json.text }}",
+        "otherOptions": {}
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Slack account (placeholder)"
+        }
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Email Alternative (disabled)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        660,
+        160
+      ],
+      "parameters": {
+        "fromEmail": "digest@example.com",
+        "toEmail": "you@example.com",
+        "subject": "Daily digest",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "SMTP account (placeholder)"
+        }
+      },
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Every Morning 08:00": {
+      "main": [
+        [
+          {
+            "node": "Read RSS Feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read RSS Feed": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Alternative (disabled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Tokyo"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

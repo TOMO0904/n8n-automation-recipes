@@ -1,0 +1,240 @@
+{
+  "name": "Form Intake with Duplicate Check (demo)",
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "demo-contact-form",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "00000000-0000-4000-8000-000000000003"
+    },
+    {
+      "id": "n2",
+      "name": "Normalize Form",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Normalize the form submission; the lowercase email is the dedupe key.\nconst b = $input.first().json.body ?? $input.first().json;\nconst email = String(b.email ?? '').trim().toLowerCase();\nif (!email.includes('@')) {\n  throw new Error('email is required');\n}\nreturn [{ json: {\n  email,\n  name: String(b.name ?? '').trim(),\n  company: String(b.company ?? '').trim(),\n  message: String(b.message ?? '').trim().slice(0, 500),\n  submitted_at: new Date().toISOString()\n}}];"
+      }
+    },
+    {
+      "id": "n3",
+      "name": "Look Up Existing Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        420,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contacts",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "email",
+              "lookupValue": "={{ $json.email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets account (placeholder)"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "n4",
+      "name": "Merge or Create",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Decide create vs update using the lookup result.\nconst form = $('Normalize Form').first().json;\nconst existing = $input.all().map(i => i.json).filter(r => r.email && String(r.email).toLowerCase() === form.email);\nconst prev = existing[0];\nreturn [{ json: {\n  is_duplicate: existing.length > 0,\n  row: {\n    email: form.email,\n    name: form.name || prev?.name || '',\n    company: form.company || prev?.company || '',\n    last_message: form.message,\n    first_seen: prev?.first_seen || form.submitted_at,\n    last_seen: form.submitted_at,\n    submissions: String((Number(prev?.submissions) || 0) + 1),\n    status: prev?.status || 'new'\n  }\n}}];"
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Upsert Contact Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        860,
+        0
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contacts",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $json.row.email }}",
+            "name": "={{ $json.row.name }}",
+            "company": "={{ $json.row.company }}",
+            "last_message": "={{ $json.row.last_message }}",
+            "first_seen": "={{ $json.row.first_seen }}",
+            "last_seen": "={{ $json.row.last_seen }}",
+            "submissions": "={{ $json.row.submissions }}",
+            "status": "={{ $json.row.status }}"
+          },
+          "matchingColumns": [
+            "email"
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets account (placeholder)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "n6",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1080,
+        -60
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"ok\", \"duplicate\": $('Merge or Create').item.json.is_duplicate } }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "n7",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1080,
+        100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"error\", \"message\": \"could not save the contact\" } }}",
+        "options": {
+          "responseCode": 502
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Form Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Form": {
+      "main": [
+        [
+          {
+            "node": "Look Up Existing Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look Up Existing Rows": {
+      "main": [
+        [
+          {
+            "node": "Merge or Create",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge or Create": {
+      "main": [
+        [
+          {
+            "node": "Upsert Contact Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Contact Row": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
