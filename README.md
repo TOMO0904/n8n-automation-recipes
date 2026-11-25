@@ -1,3 +1,5 @@
+**English** | [日本語](README.ja.md)
+
 # n8n Automation Recipes
 
 Three importable n8n workflows for common small-business automation tasks, plus a validator that checks the workflow JSON in CI.
